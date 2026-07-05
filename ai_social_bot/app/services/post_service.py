@@ -157,19 +157,129 @@ LOCAL_QUOTE_PAYLOADS = [
         'theme': 'inspiration',
         'image_prompt': IMAGE_PROMPTS[0],
     },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Every quiet beginning can become a powerful turning point.',
+        'explanation': 'Small starts can carry more strength than they first reveal.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#newbeginnings', '#inspiration', '#growth', '#dailyquote', '#quotes'],
+        'theme': 'inspiration',
+        'image_prompt': IMAGE_PROMPTS[0],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Patience turns waiting into wisdom when the heart stays steady.',
+        'explanation': 'A steady heart can learn even while life is still unfolding.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#patience', '#wisdom', '#peace', '#dailyquote', '#quotes'],
+        'theme': 'mindfulness',
+        'image_prompt': IMAGE_PROMPTS[3],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'A focused heart makes progress feel possible again.',
+        'explanation': 'Clarity can restore momentum when distractions feel heavy.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#focus', '#progress', '#motivation', '#dailyquote', '#quotes'],
+        'theme': 'motivation',
+        'image_prompt': IMAGE_PROMPTS[2],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Grace meets you gently where strength feels empty.',
+        'explanation': 'Even tired seasons can hold quiet support and renewal.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#grace', '#faith', '#hope', '#dailyquote', '#quotes'],
+        'theme': 'inspiration',
+        'image_prompt': IMAGE_PROMPTS[0],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Your next step matters more than yesterday’s delay.',
+        'explanation': 'Progress begins again the moment you choose to move.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#progress', '#motivation', '#mindset', '#dailyquote', '#quotes'],
+        'theme': 'motivation',
+        'image_prompt': IMAGE_PROMPTS[2],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'A peaceful heart can hear answers noise hides.',
+        'explanation': 'Stillness often reveals what pressure keeps hidden.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#peace', '#stillness', '#mindfulness', '#dailyquote', '#quotes'],
+        'theme': 'mindfulness',
+        'image_prompt': IMAGE_PROMPTS[3],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Consistency makes small courage look like lasting change.',
+        'explanation': 'Repeated brave choices slowly build a stronger life.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#consistency', '#courage', '#success', '#dailyquote', '#quotes'],
+        'theme': 'success',
+        'image_prompt': IMAGE_PROMPTS[2],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Gratitude opens windows the worried mind keeps closed.',
+        'explanation': 'Thankfulness can help you notice light beside uncertainty.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#gratitude', '#thankful', '#positivity', '#dailyquote', '#quotes'],
+        'theme': 'gratitude',
+        'image_prompt': IMAGE_PROMPTS[4],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Kindness gives strength a softer way to speak.',
+        'explanation': 'Gentleness can carry power without becoming harsh.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#kindness', '#strength', '#love', '#dailyquote', '#quotes'],
+        'theme': 'love',
+        'image_prompt': IMAGE_PROMPTS[1],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Hope rises quietly when you choose not to quit.',
+        'explanation': 'Continuing with faith can invite courage back into the day.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#hope', '#faith', '#nevergiveup', '#dailyquote', '#quotes'],
+        'theme': 'inspiration',
+        'image_prompt': IMAGE_PROMPTS[0],
+    },
 ]
+
+
+def _quote_key(text: str) -> str:
+    normalized = (
+        text.lower()
+        .replace('â€™', "'")
+        .replace('’', "'")
+        .replace('“', '"')
+        .replace('”', '"')
+        .replace(QUOTE_SUFFIX.lower(), '')
+        .replace('krishna.....❤️', '')
+        .replace('krishna.....♥', '')
+    )
+    return ' '.join(word.strip('.,!?;:"\'()[]{}') for word in normalized.split())
+
 
 def _local_quote_payload(used_quotes: set[str] | None = None) -> dict:
     state_path = Path('ai_social_bot/assets/.last_local_quote')
     last_quote = state_path.read_text(encoding='utf-8').strip() if state_path.exists() else ''
     used_quotes = used_quotes or set()
+    used_keys = {_quote_key(quote) for quote in used_quotes}
+    last_key = _quote_key(last_quote)
     choices = [
         payload
         for payload in LOCAL_QUOTE_PAYLOADS
-        if payload['quote'] != last_quote and payload['quote'] not in used_quotes
+        if _quote_key(payload['quote']) != last_key and _quote_key(payload['quote']) not in used_keys
     ]
     if not choices:
-        choices = [payload for payload in LOCAL_QUOTE_PAYLOADS if payload['quote'] != last_quote]
+        raise RuntimeError(
+            'All local fallback quotes have already been used. '
+            'Add more fallback quotes or restore OpenAI quota before publishing again.'
+        )
     payload = random.choice(choices or LOCAL_QUOTE_PAYLOADS).copy()
     state_path.write_text(payload['quote'], encoding='utf-8')
     payload['hashtags'] = list(payload['hashtags'])
@@ -244,8 +354,10 @@ async def _posted_quote_exists(quote: str) -> bool:
     async with AsyncSessionLocal() as s:
         from sqlalchemy import select
 
-        res = await s.execute(select(Post).where(Post.caption.ilike(f"%{quote}%")))
-        return res.scalars().first() is not None
+        res = await s.execute(select(Post.caption))
+        captions = res.scalars().all()
+    quote_key = _quote_key(quote)
+    return any(quote_key and quote_key in _quote_key(caption or '') for caption in captions)
 
 
 async def _posted_quote_texts() -> set[str]:
@@ -256,7 +368,8 @@ async def _posted_quote_texts() -> set[str]:
         captions = res.scalars().all()
     used = set()
     for payload in LOCAL_QUOTE_PAYLOADS:
-        if any(payload['quote'] in (caption or '') for caption in captions):
+        payload_key = _quote_key(payload['quote'])
+        if any(payload_key and payload_key in _quote_key(caption or '') for caption in captions):
             used.add(payload['quote'])
     return used
 
@@ -299,7 +412,7 @@ def _create_image(payload: dict, filename_prefix: str, account_links: dict | Non
 
 
 async def generate_and_schedule_post():
-    payload = await _generate_quote_payload()
+    payload = await _generate_unique_quote_payload()
 
     _, account_links = await _meta_context_and_links()
     image_path = _create_image(payload, 'quote', account_links)
@@ -316,7 +429,7 @@ async def generate_and_schedule_post():
 
 
 async def generate_post_now():
-    payload = await _generate_quote_payload()
+    payload = await _generate_unique_quote_payload()
     meta_context, account_links = await _meta_context_and_links()
 
     image_path = _create_image(payload, 'quote_now', account_links)
@@ -345,7 +458,7 @@ async def generate_post_now():
 
 
 async def generate_video_now():
-    payload = await _generate_quote_payload()
+    payload = await _generate_unique_quote_payload()
     meta_context, account_links = await _meta_context_and_links()
 
     theme = payload.get('theme', 'inspiration')

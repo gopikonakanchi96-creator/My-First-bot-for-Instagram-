@@ -15,8 +15,10 @@ class Settings(BaseSettings):
     ALLOW_LOCAL_QUOTE_FALLBACK: bool = True
     USE_NATURE_BACKGROUNDS: bool = True
     NATURE_BACKGROUND_DIR: str = 'ai_social_bot/assets'
+    POST_TIMES: str = '09:00,11:00,13:00,15:00,17:00'
     POST_TIME_1: str = '09:00'
-    POST_TIME_2: str = '18:00'
+    POST_TIME_2: str = '17:00'
+    SCHEDULER_TIMEZONE: str = 'America/Chicago'
     LOGO_PATH: str = 'assets/logo.png'
     DATABASE_URL: str = 'sqlite+aiosqlite:///./ai_social_bot.db'
 
