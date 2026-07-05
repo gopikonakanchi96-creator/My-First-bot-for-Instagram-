@@ -1,6 +1,7 @@
 from ai_social_bot.app.services.openai_service import generate_text
 from ai_social_bot.app.services.image_service import create_quote_image
-from ai_social_bot.app.services.meta_service import get_page_context, get_public_account_links, publish_to_meta
+from ai_social_bot.app.services.meta_service import get_page_context, get_public_account_links, publish_to_meta, publish_video_to_meta
+from ai_social_bot.app.services.video_service import create_quote_video
 from ai_social_bot.app.prompts.prompts import QUOTE_PROMPT, IMAGE_PROMPTS, QUOTE_SUFFIX
 from ai_social_bot.app.core.settings import settings
 from ai_social_bot.app.database.session import AsyncSessionLocal
@@ -32,8 +33,8 @@ HASHTAGS_BY_THEME = {
 LOCAL_QUOTE_PAYLOADS = [
     {
         'title': 'Daily Quote',
-        'quote': 'Faith turns small steps into steady blessings every single day.',
-        'explanation': 'A steady heart can turn ordinary effort into meaningful progress.',
+        'quote': 'Faith makes the next step brighter than the fear ahead.',
+        'explanation': 'Trust can make progress possible even before the path feels clear.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#faith', '#dailyquote', '#inspiration', '#positivity', '#quotes'],
         'theme': 'inspiration',
@@ -41,8 +42,8 @@ LOCAL_QUOTE_PAYLOADS = [
     },
     {
         'title': 'Daily Quote',
-        'quote': 'A peaceful mind finds light even in difficult mornings.',
-        'explanation': 'Calm focus helps you notice hope before the day feels easy.',
+        'quote': 'Peace grows when your heart stops arguing with yesterday.',
+        'explanation': 'Letting go of old weight makes room for a steadier today.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#peace', '#mindset', '#dailyquote', '#hope', '#quotes'],
         'theme': 'mindfulness',
@@ -50,8 +51,8 @@ LOCAL_QUOTE_PAYLOADS = [
     },
     {
         'title': 'Daily Quote',
-        'quote': 'Gratitude makes simple moments feel quietly rich and complete.',
-        'explanation': 'Thankfulness can turn ordinary life into something deeply meaningful.',
+        'quote': 'Gratitude turns ordinary moments into quiet proof of abundance.',
+        'explanation': 'A thankful perspective helps small blessings feel meaningful again.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#gratitude', '#thankful', '#dailyquote', '#positivity', '#quotes'],
         'theme': 'gratitude',
@@ -59,8 +60,8 @@ LOCAL_QUOTE_PAYLOADS = [
     },
     {
         'title': 'Daily Quote',
-        'quote': 'Discipline carries dreams when motivation begins to fade.',
-        'explanation': 'Consistent action keeps progress alive after excitement passes.',
+        'quote': 'Discipline keeps your dream alive after excitement becomes quiet.',
+        'explanation': 'Consistent action protects progress when motivation is not enough.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#motivation', '#discipline', '#success', '#dailyquote', '#quotes'],
         'theme': 'motivation',
@@ -68,8 +69,8 @@ LOCAL_QUOTE_PAYLOADS = [
     },
     {
         'title': 'Daily Quote',
-        'quote': 'Hope grows stronger when patience protects your heart.',
-        'explanation': 'Waiting with trust keeps your spirit steady through uncertainty.',
+        'quote': 'Hope becomes stronger when patience teaches the heart to breathe.',
+        'explanation': 'Waiting with trust can steady you through uncertain seasons.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#hope', '#patience', '#faith', '#dailyquote', '#quotes'],
         'theme': 'inspiration',
@@ -77,8 +78,8 @@ LOCAL_QUOTE_PAYLOADS = [
     },
     {
         'title': 'Daily Quote',
-        'quote': 'Kind words can heal places silence could not reach.',
-        'explanation': 'Gentle words often carry strength that pressure never can.',
+        'quote': 'Kindness reaches places pride will never know how to enter.',
+        'explanation': 'Gentle care can open doors that force and ego cannot.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#kindness', '#healing', '#love', '#dailyquote', '#quotes'],
         'theme': 'love',
@@ -86,8 +87,8 @@ LOCAL_QUOTE_PAYLOADS = [
     },
     {
         'title': 'Daily Quote',
-        'quote': 'Your calm response can change the whole room.',
-        'explanation': 'Peaceful control can guide a difficult moment toward clarity.',
+        'quote': 'Your calm response can become the room’s first deep breath.',
+        'explanation': 'Steady presence can change the direction of a difficult moment.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#calm', '#mindfulness', '#peace', '#dailyquote', '#quotes'],
         'theme': 'mindfulness',
@@ -95,8 +96,8 @@ LOCAL_QUOTE_PAYLOADS = [
     },
     {
         'title': 'Daily Quote',
-        'quote': 'Small honest efforts build a life that feels proud.',
-        'explanation': 'Daily integrity creates confidence that lasts longer than applause.',
+        'quote': 'Small honest efforts build confidence no applause can replace.',
+        'explanation': 'Integrity creates a quiet strength that stays with you.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#effort', '#integrity', '#success', '#dailyquote', '#quotes'],
         'theme': 'success',
@@ -104,8 +105,8 @@ LOCAL_QUOTE_PAYLOADS = [
     },
     {
         'title': 'Daily Quote',
-        'quote': 'Peace begins when you stop fighting every thought.',
-        'explanation': 'Letting thoughts pass can make space for real rest.',
+        'quote': 'Peace begins when every thought no longer needs an answer.',
+        'explanation': 'Letting thoughts pass can create space for real rest.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#peace', '#mindfulness', '#mentalhealth', '#dailyquote', '#quotes'],
         'theme': 'mindfulness',
@@ -113,8 +114,8 @@ LOCAL_QUOTE_PAYLOADS = [
     },
     {
         'title': 'Daily Quote',
-        'quote': 'A grateful heart notices blessings before complaints arrive.',
-        'explanation': 'Gratitude trains your attention to see what is still good.',
+        'quote': 'A grateful heart sees blessings before complaints find words.',
+        'explanation': 'Gratitude trains attention to notice what is still good.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#gratitude', '#blessed', '#thankful', '#dailyquote', '#quotes'],
         'theme': 'gratitude',
@@ -122,8 +123,8 @@ LOCAL_QUOTE_PAYLOADS = [
     },
     {
         'title': 'Daily Quote',
-        'quote': 'Courage is quiet until the hard moment arrives.',
-        'explanation': 'Real strength often appears only when the path becomes difficult.',
+        'quote': 'Courage often whispers before it teaches your feet to move.',
+        'explanation': 'Real strength can begin quietly before action becomes visible.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#courage', '#strength', '#motivation', '#dailyquote', '#quotes'],
         'theme': 'motivation',
@@ -131,7 +132,7 @@ LOCAL_QUOTE_PAYLOADS = [
     },
     {
         'title': 'Daily Quote',
-        'quote': 'Love becomes real when care chooses consistency daily.',
+        'quote': 'Love becomes visible when care chooses consistency over performance.',
         'explanation': 'Steady care says more than occasional grand gestures.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#love', '#care', '#relationship', '#dailyquote', '#quotes'],
@@ -140,7 +141,7 @@ LOCAL_QUOTE_PAYLOADS = [
     },
     {
         'title': 'Daily Quote',
-        'quote': 'Focus protects your dream from unnecessary noise each day.',
+        'quote': 'Focus protects your dream from noise pretending to matter.',
         'explanation': 'Clear attention keeps progress moving when distractions compete.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#focus', '#dreams', '#success', '#dailyquote', '#quotes'],
@@ -149,8 +150,8 @@ LOCAL_QUOTE_PAYLOADS = [
     },
     {
         'title': 'Daily Quote',
-        'quote': 'Faith does not remove storms, it steadies steps.',
-        'explanation': 'Belief can help you keep moving even when life feels heavy.',
+        'quote': 'Faith may not stop storms, but it steadies every step.',
+        'explanation': 'Belief can help you keep moving when life feels heavy.',
         'cta': 'Share this reminder today.',
         'hashtags': ['#faith', '#strength', '#hope', '#dailyquote', '#quotes'],
         'theme': 'inspiration',
@@ -225,6 +226,16 @@ def _caption_text(payload: dict) -> str:
         payload.get('quote', '').strip(),
         payload.get('explanation', '').strip(),
         hashtag_text.strip(),
+    ]
+    return '\n\n'.join(part for part in parts if part)
+
+
+def _video_caption_text(payload: dict) -> str:
+    theme = payload.get('theme', 'inspiration')
+    hashtags = payload.get('hashtags') or HASHTAGS_BY_THEME.get(theme, HASHTAGS_BY_THEME['inspiration'])
+    parts = [
+        payload.get('quote', '').strip(),
+        ' '.join(hashtags).strip(),
     ]
     return '\n\n'.join(part for part in parts if part)
 
@@ -325,6 +336,42 @@ async def generate_post_now():
             caption=caption,
             hashtags=','.join(hashtags),
             image_path=image_path,
+            posted='error' not in publish_res,
+        )
+        s.add(post)
+        await s.commit()
+
+    return publish_res
+
+
+async def generate_video_now():
+    payload = await _generate_quote_payload()
+    meta_context, account_links = await _meta_context_and_links()
+
+    theme = payload.get('theme', 'inspiration')
+    hashtags = payload.get('hashtags') or HASHTAGS_BY_THEME.get(theme, HASHTAGS_BY_THEME['inspiration'])
+    caption = _video_caption_text(payload)
+    filename = f"quote_video_{time.time_ns()}.mp4"
+    video_path = create_quote_video(
+        payload.get('quote', ''),
+        payload.get('explanation', ''),
+        f'ai_social_bot/assets/{filename}',
+        theme=theme,
+        account_links=account_links,
+    )
+
+    try:
+        publish_res = await publish_video_to_meta(video_path, caption, context=meta_context)
+    except Exception as e:
+        print(f"Meta video publish error: {e}")
+        publish_res = {'error': str(e)}
+
+    async with AsyncSessionLocal() as s:
+        post = Post(
+            title=payload.get('title', ''),
+            caption=caption,
+            hashtags=','.join(hashtags),
+            image_path=video_path,
             posted='error' not in publish_res,
         )
         s.add(post)

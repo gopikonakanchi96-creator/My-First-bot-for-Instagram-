@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     META_PAGE_ACCESS_TOKEN: str
     FACEBOOK_PAGE_ID: str
     FACEBOOK_PAGE_URL: str | None = None
+    FACEBOOK_PAGE_NAME: str | None = None
     INSTAGRAM_PROFILE_URL: str | None = None
     INSTAGRAM_USERNAME: str | None = None
     META_GRAPH_API_VERSION: str = 'v23.0'

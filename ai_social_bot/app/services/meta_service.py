@@ -88,7 +88,7 @@ def get_public_account_links(context: dict | None = None) -> dict:
     instagram_account = context.get('instagram_account')
     return {
         'facebook_url': _public_facebook_page_url(context),
-        'facebook_name': context.get('page_name'),
+        'facebook_name': settings.FACEBOOK_PAGE_NAME or context.get('page_name'),
         'instagram_url': _public_instagram_url(instagram_account),
         'instagram_username': _public_instagram_username(instagram_account),
     }
@@ -142,6 +142,21 @@ async def _get_facebook_photo_url(client: httpx.AsyncClient, photo_id: str, page
     raise RuntimeError(f'Facebook photo {photo_id} did not return a public image URL')
 
 
+async def _get_facebook_video_url(client: httpx.AsyncClient, video_id: str, page_access_token: str) -> str | None:
+    response = await client.get(
+        f'{API_BASE}/{video_id}',
+        params={
+            'fields': 'source,permalink_url',
+            'access_token': page_access_token,
+        },
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f'Facebook video URL lookup failed ({response.status_code}): {response.text}')
+
+    data = response.json()
+    return data.get('source') or data.get('permalink_url')
+
+
 async def publish_page_photo(image_path: str, message: str, context: dict | None = None) -> dict:
     """
     Upload a local image file as a published Facebook Page photo post.
@@ -165,6 +180,33 @@ async def publish_page_photo(image_path: str, message: str, context: dict | None
         result = response.json()
         if result.get('id'):
             result['image_url'] = await _get_facebook_photo_url(client, result['id'], page_access_token)
+        return result
+
+
+async def publish_page_video(video_path: str, description: str, context: dict | None = None) -> dict:
+    """
+    Upload a local MP4 as a published Facebook Page video post.
+    """
+    async with httpx.AsyncClient(timeout=180) as client:
+        context = context or await get_page_context(client)
+        page_access_token = context['page_access_token']
+        upload_url = f"{API_BASE}/{settings.FACEBOOK_PAGE_ID}/videos"
+        data = {
+            'description': description,
+            'published': 'true',
+            'access_token': page_access_token,
+        }
+        with open(video_path, 'rb') as f:
+            files = {'source': ('quote_video.mp4', f, 'video/mp4')}
+            response = await client.post(upload_url, data=data, files=files)
+
+        if response.status_code >= 400:
+            raise RuntimeError(f'Facebook video publish failed ({response.status_code}): {response.text}')
+
+        result = response.json()
+        video_id = result.get('id')
+        if video_id:
+            result['video_url'] = await _get_facebook_video_url(client, video_id, page_access_token)
         return result
 
 
@@ -223,6 +265,62 @@ async def publish_instagram_photo(image_url: str, caption: str, context: dict | 
         }
 
 
+async def publish_instagram_reel(video_url: str, caption: str, context: dict | None = None) -> dict:
+    """
+    Publish a public MP4 URL as an Instagram Reel.
+    """
+    async with httpx.AsyncClient(timeout=180) as client:
+        context = context or await get_page_context(client)
+        instagram_account = context.get('instagram_account')
+        if not instagram_account or not instagram_account.get('id'):
+            raise RuntimeError('No Instagram business account is connected to the configured Facebook Page')
+
+        page_access_token = context['page_access_token']
+        instagram_id = instagram_account['id']
+        create_response = await client.post(
+            f'{API_BASE}/{instagram_id}/media',
+            data={
+                'media_type': 'REELS',
+                'video_url': video_url,
+                'caption': caption,
+                'access_token': page_access_token,
+            },
+        )
+        if create_response.status_code >= 400:
+            raise RuntimeError(f'Instagram reel container failed ({create_response.status_code}): {create_response.text}')
+
+        creation_id = create_response.json().get('id')
+        if not creation_id:
+            raise RuntimeError(f'Instagram reel container did not return an id: {create_response.text}')
+
+        publish_response = None
+        for attempt in range(1, 13):
+            publish_response = await client.post(
+                f'{API_BASE}/{instagram_id}/media_publish',
+                data={
+                    'creation_id': creation_id,
+                    'access_token': page_access_token,
+                },
+            )
+            if publish_response.status_code < 400:
+                break
+            if 'not ready to be published' not in publish_response.text and 'Media ID is not available' not in publish_response.text:
+                break
+            await asyncio.sleep(attempt * 5)
+
+        if publish_response is None or publish_response.status_code >= 400:
+            status_code = publish_response.status_code if publish_response is not None else 'unknown'
+            response_text = publish_response.text if publish_response is not None else 'no response'
+            raise RuntimeError(f'Instagram reel publish failed ({status_code}): {response_text}')
+
+        return {
+            'instagram_account_id': instagram_id,
+            'instagram_username': instagram_account.get('username'),
+            'creation_id': creation_id,
+            'publish': publish_response.json(),
+        }
+
+
 async def publish_to_meta(image_path: str, caption: str, context: dict | None = None) -> dict:
     """
     Publish one generated image to both Facebook Page and connected Instagram business account.
@@ -241,4 +339,38 @@ async def publish_to_meta(image_path: str, caption: str, context: dict | None = 
         raise RuntimeError('Facebook published, but no public image URL was available for Instagram')
 
     result['instagram'] = await publish_instagram_photo(image_url, instagram_caption, context=context)
+    return result
+
+
+async def publish_video_to_meta(video_path: str, caption: str, context: dict | None = None) -> dict:
+    """
+    Publish one generated MP4 to Facebook Page and attempt Instagram Reels.
+    Instagram requires a public video URL; Meta may reject Facebook-hosted first-party URLs.
+    """
+    result = {'facebook': None, 'instagram': None}
+    if context is None:
+        async with httpx.AsyncClient(timeout=60) as client:
+            context = await get_page_context(client)
+
+    facebook_caption, instagram_caption = build_platform_captions(caption, context)
+    result['facebook'] = await publish_page_video(video_path, facebook_caption, context=context)
+
+    video_url = result['facebook'].get('video_url')
+    if not video_url:
+        result['instagram'] = {'error': 'Facebook published, but no public video URL was available for Instagram'}
+        return result
+    if not video_url.startswith(('http://', 'https://')):
+        result['instagram'] = {
+            'error': (
+                'Facebook published, but Meta returned a Facebook-relative video link instead of '
+                'a public MP4 URL required by Instagram Reels'
+            ),
+            'video_url': video_url,
+        }
+        return result
+
+    try:
+        result['instagram'] = await publish_instagram_reel(video_url, instagram_caption, context=context)
+    except Exception as exc:
+        result['instagram'] = {'error': str(exc)}
     return result
