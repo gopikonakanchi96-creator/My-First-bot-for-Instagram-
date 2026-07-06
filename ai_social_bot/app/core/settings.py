@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     INSTAGRAM_PROFILE_URL: str | None = None
     INSTAGRAM_USERNAME: str | None = None
     META_GRAPH_API_VERSION: str = 'v23.0'
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL: str = 'gemini-2.5-flash-lite'
+    GEMINI_MODEL_FALLBACKS: str = 'gemini-2.0-flash-lite,gemini-2.0-flash'
     OPENAI_MODEL: str = 'gpt-4o'
     OPENAI_MODEL_FALLBACKS: str = 'gpt-4o-mini,gpt-4.1-mini'
     ALLOW_LOCAL_QUOTE_FALLBACK: bool = True

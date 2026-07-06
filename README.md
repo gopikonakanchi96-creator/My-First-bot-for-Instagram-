@@ -187,6 +187,9 @@ FACEBOOK_PAGE_NAME=your-page-name
 INSTAGRAM_PROFILE_URL=https://www.instagram.com/your-instagram/
 INSTAGRAM_USERNAME=your-instagram
 META_GRAPH_API_VERSION=v23.0
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL=gemini-2.5-flash-lite
+GEMINI_MODEL_FALLBACKS=gemini-2.0-flash-lite,gemini-2.0-flash
 OPENAI_MODEL=gpt-4o
 OPENAI_MODEL_FALLBACKS=gpt-4o-mini,gpt-4.1-mini
 ALLOW_LOCAL_QUOTE_FALLBACK=true
@@ -230,6 +233,14 @@ Run the app:
 ```powershell
 python -m uvicorn ai_social_bot.app.main:app --host 127.0.0.1 --port 8000
 ```
+
+On Windows, you can also start the bot and scheduler with the helper script:
+
+```powershell
+.\start_bot.ps1
+```
+
+Keep that process running before each scheduled time. For reliable daily posting, create a Windows Task Scheduler task that runs this script at user logon, and make sure the computer is awake when posts are due.
 
 Check the server:
 
@@ -370,7 +381,7 @@ The main `posts` fields are:
 
 OpenAI returns `429 insufficient_quota`
 
-The OpenAI account does not have available quota or billing is not active. The bot can still use local fallback quotes when `ALLOW_LOCAL_QUOTE_FALLBACK=true`.
+The OpenAI account does not have available quota or billing is not active. If `GEMINI_API_KEY` is configured, the bot tries Gemini before OpenAI. The bot can still use local fallback quotes when `ALLOW_LOCAL_QUOTE_FALLBACK=true`.
 
 Meta says token expired
 
@@ -382,7 +393,7 @@ Check that the Instagram account is a business or creator account connected to t
 
 Scheduled posts do not happen
 
-Make sure the FastAPI server is running at the scheduled time and the machine is not sleeping.
+Make sure the FastAPI server is running at the scheduled time and the machine is not sleeping. On Windows, run `.\start_bot.ps1` from the project root before the first scheduled post, or configure Windows Task Scheduler to run that script at logon.
 
 Repeated quotes
 
