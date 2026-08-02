@@ -2,6 +2,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from ai_social_bot.app.core.settings import settings
 from ai_social_bot.app.services.post_service import generate_post_now
+from datetime import datetime
 
 
 def _configured_post_times() -> list[str]:
@@ -27,12 +28,21 @@ def _configured_post_times() -> list[str]:
 class Scheduler:
     _scheduler = AsyncIOScheduler(timezone=settings.SCHEDULER_TIMEZONE)
 
+    @staticmethod
+    async def _publish_scheduled_post():
+        try:
+            result = await generate_post_now()
+            print(f"Scheduled publish finished: {result}")
+        except Exception as exc:
+            print(f"Scheduled publish failed: {exc}")
+            raise
+
     @classmethod
     def start(cls, app=None):
         for post_time in _configured_post_times():
             hour, minute = post_time.split(':')
             cls._scheduler.add_job(
-                generate_post_now,
+                cls._publish_scheduled_post,
                 CronTrigger(
                     hour=int(hour),
                     minute=int(minute),
@@ -56,6 +66,8 @@ class Scheduler:
         return {
             'running': cls._scheduler.running,
             'timezone': str(cls._scheduler.timezone),
+            'now': datetime.now(cls._scheduler.timezone).isoformat(),
+            'configured_times': _configured_post_times(),
             'jobs': [
                 {
                     'id': job.id,

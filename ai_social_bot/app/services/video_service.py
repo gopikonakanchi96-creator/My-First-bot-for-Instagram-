@@ -219,10 +219,13 @@ def _draw_footer(
     footer_lines = []
     instagram_username = account_links.get('instagram_username')
     facebook_name = account_links.get('facebook_name')
+    threads_username = account_links.get('threads_username')
     if instagram_username:
         footer_lines.append(f'@{instagram_username}')
     if facebook_name:
         footer_lines.append(f'Facebook: {facebook_name}')
+    if threads_username:
+        footer_lines.append(f'Threads: @{threads_username}')
     if not footer_lines:
         return
 

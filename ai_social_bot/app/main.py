@@ -13,7 +13,8 @@ setup_logging()
 @app.on_event("startup")
 async def startup_event():
     await init_db()
-    Scheduler.start(app)
+    if settings.ENABLE_IN_APP_SCHEDULER:
+        Scheduler.start(app)
 
 @app.on_event("shutdown")
 async def shutdown_event():

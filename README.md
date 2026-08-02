@@ -1,14 +1,14 @@
-# AI Facebook and Instagram Quote Bot
+# AI Facebook, Instagram, and Threads Quote Bot
 
-This project generates quote content, turns it into image or video posts, and publishes the content to a Facebook Page and the Instagram business account connected to that Page.
+This project generates quote content, turns it into image or video posts, and publishes the content to a Facebook Page, the Instagram business account connected to that Page, and an optional Threads account.
 
-The current production path is image quote publishing. It publishes one generated quote image to Facebook first, gets the public Facebook image URL, and then uses that URL to publish the same post to Instagram.
+The current production path is image quote publishing. It publishes one generated quote image to Facebook first, gets the public Facebook image URL, and then uses that URL to publish the same post to Instagram and Threads.
 
 ## Current Requirements Implemented
 
-- Publish quote image posts to both Facebook Page and connected Instagram business account.
-- Schedule five automatic quote image posts every day.
-- Default schedule is `09:00`, `11:00`, `13:00`, `15:00`, and `17:00`.
+- Publish quote image posts to Facebook Page, connected Instagram business account, and optional Threads account.
+- Schedule six automatic quote image posts every day.
+- Default schedule is every four hours: `00:00`, `04:00`, `08:00`, `12:00`, `16:00`, and `20:00`.
 - Schedule timezone is configurable and currently set to `America/Chicago`.
 - Generate a fresh quote for every publish attempt.
 - Avoid reusing the same fallback quote when OpenAI is unavailable.
@@ -18,20 +18,23 @@ The current production path is image quote publishing. It publishes one generate
 - Show account identity at the bottom of the image:
   - Instagram handle
   - Facebook page name
+  - Threads handle when configured
 - Do not print raw `http://` or `https://` URLs inside the generated image.
 - Add hashtags to captions based on the quote theme.
 - Store generated post records in SQLite.
-- Support music-only MP4 quote videos locally and Facebook video publishing.
+- Support music-only MP4 quote videos locally, Facebook video publishing, and optional Threads video publishing when Meta returns a public video URL.
 
 ## Important Runtime Notes
 
 The scheduler only runs while the FastAPI app is running. If the computer is shut down, asleep, or the server process is stopped, scheduled posts will not publish.
 
-Meta Page access tokens must stay valid. If the token expires or loses permissions, Facebook and Instagram publishing will fail until the token is replaced.
+Meta Page access tokens must stay valid. If the token expires or loses permissions, Facebook and Instagram publishing will fail until the token is replaced. Threads uses `THREADS_ACCESS_TOKEN`, which must also stay valid.
 
 OpenAI quote generation currently falls back to local quotes when the OpenAI API returns quota or billing errors. The fallback path is intentional so the bot can still publish when OpenAI is unavailable, but the fallback quote list must be expanded over time to avoid running out of unused quotes.
 
-Instagram video/Reels publishing requires a public MP4 URL. The bot can create MP4 videos and publish them to Facebook, but Instagram Reels may fail when Meta only returns a Facebook-relative video URL instead of a public MP4 URL.
+When AI quote generation is unavailable, scheduled image posts can publish a finished quote image from `ai_social_bot/local_quote_images`. Successfully published fallback images are deleted from that folder so they are not reused.
+
+Instagram video/Reels and Threads video publishing require a public MP4 URL. The bot can create MP4 videos and publish them to Facebook, but Instagram and Threads video publishing may fail when Meta only returns a Facebook-relative video URL instead of a public MP4 URL.
 
 ## End-to-End Flow
 
@@ -40,19 +43,22 @@ Instagram video/Reels publishing requires a public MP4 URL. The bot can create M
 3. The scheduler starts from `ai_social_bot/app/scheduler/scheduler.py`.
 4. At each configured schedule time, the scheduler calls `generate_post_now()`.
 5. `generate_post_now()` asks OpenAI for a quote through `openai_service.py`.
-6. If OpenAI fails and local fallback is enabled, `post_service.py` picks an unused local fallback quote.
-7. Duplicate quote checks compare normalized quote text against previous database captions.
-8. `image_service.py` creates a 1080x1350 quote image with:
+6. If AI quote generation fails and local fallback is enabled, `post_service.py` first tries a ready-made image from `LOCAL_QUOTE_IMAGE_DIR`.
+7. If no ready-made image is available, `post_service.py` picks an unused local fallback quote.
+8. Duplicate quote checks compare normalized quote text against previous database captions.
+9. `image_service.py` creates a 1080x1350 quote image with:
    - selected background
    - selected font
    - centered quote
    - `Krishna.....` signature and small heart
    - bottom account footer
-9. `meta_service.py` resolves the Facebook Page token and connected Instagram account.
-10. `meta_service.py` uploads the image to the Facebook Page.
-11. The Facebook photo URL is reused as the Instagram `image_url`.
-12. `meta_service.py` creates and publishes the Instagram media container.
-13. `post_service.py` records the result in the `posts` table.
+10. `meta_service.py` resolves the Facebook Page token and connected Instagram account.
+11. `meta_service.py` uploads the image to the Facebook Page.
+12. The Facebook photo URL is reused as the Instagram `image_url`.
+13. `meta_service.py` creates and publishes the Instagram media container.
+14. If Threads is configured, the same Facebook photo URL is reused as the Threads `image_url`.
+15. `post_service.py` records the result in the `posts` table.
+16. If a ready-made local quote image was used and publishing succeeded, that source image is deleted.
 
 ## Project Structure
 
@@ -66,8 +72,7 @@ Instagram video/Reels publishing requires a public MP4 URL. The bot can create M
 |   |-- app/
 |   |   |-- main.py
 |   |   |-- api/
-|   |   |   |-- routes.py
-|   |   |   `-- dashboard.py
+|   |   |   `-- routes.py
 |   |   |-- core/
 |   |   |   `-- settings.py
 |   |   |-- database/
@@ -85,7 +90,6 @@ Instagram video/Reels publishing requires a public MP4 URL. The bot can create M
 |   |   |   |-- post_service.py
 |   |   |   `-- video_service.py
 |   |   `-- utils/
-|   |       |-- image_utils.py
 |   |       `-- logger.py
 |   `-- assets/
 |       |-- quote_background_*.png
@@ -108,17 +112,18 @@ Loads configuration from `.env`. This includes OpenAI settings, Meta settings, s
 
 `ai_social_bot/app/scheduler/scheduler.py`
 
-Uses APScheduler to register one daily job per configured post time. The default five jobs are:
+Uses APScheduler to register one daily job per configured post time. The default six jobs are:
 
 ```text
-09:00
-11:00
-13:00
-15:00
-17:00
+00:00
+04:00
+08:00
+12:00
+16:00
+20:00
 ```
 
-Each job calls `generate_post_now()`, which publishes to both Facebook and Instagram.
+Each job calls `generate_post_now()`, which publishes to Facebook, Instagram, and Threads when Threads is configured.
 
 `ai_social_bot/app/services/post_service.py`
 
@@ -149,15 +154,17 @@ Creates quote images. It handles font selection, background selection, quote wra
 
 `ai_social_bot/app/services/meta_service.py`
 
-Handles Facebook and Instagram publishing through the Meta Graph API:
+Handles Facebook, Instagram, and Threads publishing through the Meta Graph APIs:
 
 - looks up the configured Facebook Page
 - gets a Page access token
 - finds the connected Instagram business account
 - publishes Facebook Page photos
 - publishes Instagram photo posts
+- publishes Threads image posts
 - publishes Facebook videos
 - attempts Instagram Reels when a public MP4 URL is available
+- attempts Threads video posts when a public MP4 URL is available
 
 `ai_social_bot/app/services/video_service.py`
 
@@ -186,6 +193,13 @@ FACEBOOK_PAGE_URL=https://www.facebook.com/your-page
 FACEBOOK_PAGE_NAME=your-page-name
 INSTAGRAM_PROFILE_URL=https://www.instagram.com/your-instagram/
 INSTAGRAM_USERNAME=your-instagram
+THREADS_ACCESS_TOKEN=your-threads-access-token
+THREADS_PROFILE_URL=https://www.threads.net/@your-threads/
+THREADS_USERNAME=your-threads
+THREADS_API_VERSION=v1.0
+THREADS_APP_ID=your-threads-app-id
+THREADS_APP_SECRET=your-threads-app-secret
+THREADS_REDIRECT_URI=https://www.example.com/threads/callback
 META_GRAPH_API_VERSION=v23.0
 GEMINI_API_KEY=your-gemini-api-key
 GEMINI_MODEL=gemini-2.5-flash-lite
@@ -193,32 +207,106 @@ GEMINI_MODEL_FALLBACKS=gemini-2.0-flash-lite,gemini-2.0-flash
 OPENAI_MODEL=gpt-4o
 OPENAI_MODEL_FALLBACKS=gpt-4o-mini,gpt-4.1-mini
 ALLOW_LOCAL_QUOTE_FALLBACK=true
+LOCAL_QUOTE_IMAGE_DIR=ai_social_bot/local_quote_images
+LOCAL_QUOTE_IMAGE_CAPTION=Daily inspiration. Krishna.....
+DELETE_LOCAL_QUOTE_IMAGE_AFTER_POST=true
 USE_NATURE_BACKGROUNDS=true
 NATURE_BACKGROUND_DIR=ai_social_bot/assets
-POST_TIMES=09:00,11:00,13:00,15:00,17:00
+POST_TIMES=00:00,04:00,08:00,12:00,16:00,20:00
 POST_TIME_1=09:00
 POST_TIME_2=17:00
 SCHEDULER_TIMEZONE=America/Chicago
+ENABLE_IN_APP_SCHEDULER=false
 LOGO_PATH=assets/logo.png
 DATABASE_URL=sqlite+aiosqlite:///./ai_social_bot.db
 ```
 
 `POST_TIMES` is the active schedule setting. `POST_TIME_1` and `POST_TIME_2` remain only for backward compatibility.
 
+`ENABLE_IN_APP_SCHEDULER=false` keeps the FastAPI server from also running scheduled posts. Leave it false when using Windows Task Scheduler. Set it to true only when you want the FastAPI process itself to own scheduling.
+
+Place ready-made fallback quote images in `ai_social_bot/local_quote_images`. Supported extensions are `.jpg`, `.jpeg`, `.png`, and `.webp`. The scheduler uses the first filename in sorted order when AI quote generation fails, publishes it with `LOCAL_QUOTE_IMAGE_CAPTION`, and deletes it after a successful image publish when `DELETE_LOCAL_QUOTE_IMAGE_AFTER_POST=true`.
+
 ## Meta Requirements
 
-The Meta token must have access to the configured Facebook Page and the connected Instagram business account.
+The Meta token must have access to the configured Facebook Page and the connected Instagram business account. Threads publishing uses a separate Threads API token in `THREADS_ACCESS_TOKEN`.
 
 Required Page publishing behavior depends on these permissions and connections:
 
 - Facebook Page must be connected to the Instagram business account.
-- Token must be able to read `/me/accounts`.
+- Token can be either a user token that can read `/me/accounts` or a Page token for the configured `FACEBOOK_PAGE_ID`.
 - Token must return the configured `FACEBOOK_PAGE_ID`.
 - Token must include or resolve a valid Page access token.
 - Page token must be able to publish photos to the Page.
 - Connected Instagram account must support content publishing through the Instagram Graph API.
+- Required permissions normally include `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `instagram_basic`, and `instagram_content_publish`.
+- Threads token must belong to the target Threads profile and include Threads publishing access, normally `threads_basic` and `threads_content_publish`.
 
-If `/status` works but publishing fails, the issue is usually token expiration, missing permissions, or Instagram not being connected to the selected Facebook Page.
+If `/status` works but publishing fails, the issue is usually token expiration, missing permissions, Instagram not being connected to the selected Facebook Page, or a missing Threads token.
+
+Run a read-only Meta access check before publishing:
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+python tools/check_meta_access.py
+```
+
+If the script prints `"ready_for_publish": false`, fix the failing Meta check before running `python tools/publish_once.py`.
+
+## Threads Setup
+
+Threads uses a separate Threads API token from the Facebook Page token. The bot already knows how to publish to Threads after `THREADS_ACCESS_TOKEN` is configured.
+
+1. In the Meta Developer dashboard, create or open an app with the Threads API/use case enabled.
+2. In the app's basic settings, copy the Threads App ID and Threads App Secret.
+3. Add a valid OAuth redirect URI to the Threads app. For a one-person local setup, this can be any URL you control or a temporary callback URL where you can copy the returned `code` query parameter.
+4. Add these values to `.env`:
+
+```env
+THREADS_APP_ID=your-threads-app-id
+THREADS_APP_SECRET=your-threads-app-secret
+THREADS_REDIRECT_URI=https://www.example.com/threads/callback
+THREADS_PROFILE_URL=https://www.threads.net/@your-threads/
+THREADS_USERNAME=your-threads
+THREADS_API_VERSION=v1.0
+```
+
+5. Generate the authorization URL:
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+python tools/threads_setup.py auth-url
+```
+
+6. Open the printed URL in a browser, sign in to the target Threads account, approve access, and copy the `code` value from the redirected URL.
+7. Exchange the code for a short-lived Threads user token:
+
+```powershell
+python tools/threads_setup.py exchange-code --code "paste-code-here"
+```
+
+8. Temporarily set `THREADS_ACCESS_TOKEN` in `.env` to the short-lived `access_token` from the response.
+9. Exchange it for a long-lived token:
+
+```powershell
+python tools/threads_setup.py long-lived
+```
+
+10. Replace `THREADS_ACCESS_TOKEN` in `.env` with the long-lived `access_token`.
+11. Validate the Threads token:
+
+```powershell
+python tools/threads_setup.py me
+python tools/check_meta_access.py
+```
+
+The Meta access check should print `"threads_ready_for_publish": true`. After that, image publishing through `python tools/publish_once.py` or `POST /publish-now` will publish to Facebook, Instagram, and Threads.
+
+Refresh the long-lived token before it expires:
+
+```powershell
+python tools/threads_setup.py refresh
+```
 
 ## Installation
 
@@ -234,13 +322,27 @@ Run the app:
 python -m uvicorn ai_social_bot.app.main:app --host 127.0.0.1 --port 8000
 ```
 
-On Windows, you can also start the bot and scheduler with the helper script:
+On Windows, you can also start the bot and in-app scheduler with the helper script:
 
 ```powershell
 .\start_bot.ps1
 ```
 
-Keep that process running before each scheduled time. For reliable daily posting, create a Windows Task Scheduler task that runs this script at user logon, and make sure the computer is awake when posts are due.
+Keep that process running before each scheduled time when using the in-app scheduler. If Windows Task Scheduler is already installed, do not keep a separate in-app scheduler running unless you intentionally want a second scheduler.
+
+For more reliable daily posting on Windows, register one Task Scheduler job per post time. These tasks publish one post and exit, so the API server does not need to stay open all day:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install_windows_schedule.ps1
+```
+
+The installer reads `POST_TIMES` from `.env` and creates daily tasks named `AI Social Bot Publish 0900`, `AI Social Bot Publish 1100`, and so on. Each task runs:
+
+```powershell
+.\run_scheduled_publish.ps1
+```
+
+Scheduled publish output is written to `scheduled_publish.log`.
 
 Check the server:
 
@@ -264,7 +366,11 @@ Generates a post image and saves it in the database without publishing it.
 
 `POST /publish-now`
 
-Generates one fresh quote image and publishes it to Facebook and Instagram.
+Generates one fresh quote image and publishes it to Facebook, Instagram, and Threads when Threads is configured.
+
+`POST /publish-video-now`
+
+Generates one fresh animated quote MP4 and publishes it to Facebook. Instagram Reels and Threads video publishing are attempted when a public MP4 URL is available.
 
 `GET /logs`
 
@@ -283,7 +389,7 @@ Create and publish one video now:
 
 ```powershell
 $env:PYTHONIOENCODING='utf-8'
-python -c "import asyncio, json; from ai_social_bot.app.services.post_service import generate_video_now; print(json.dumps(asyncio.run(generate_video_now()), indent=2, ensure_ascii=False, default=str))"
+python tools/publish_video_once.py
 ```
 
 Check configured schedule times:
@@ -300,9 +406,12 @@ The scheduler registers one job per value in `POST_TIMES`.
 Default:
 
 ```env
-POST_TIMES=09:00,11:00,13:00,15:00,17:00
+POST_TIMES=00:00,04:00,08:00,12:00,16:00,20:00
 SCHEDULER_TIMEZONE=America/Chicago
+ENABLE_IN_APP_SCHEDULER=false
 ```
+
+Recommended Windows setup is the Task Scheduler scripts. In that mode, `ENABLE_IN_APP_SCHEDULER` should stay false so only one scheduler creates posts.
 
 The app must already be running at each scheduled time. Missed jobs are not backfilled hours later. Jobs have a short misfire grace window so small delays do not create duplicate posts.
 
@@ -357,7 +466,7 @@ The video generator creates portrait MP4 files with:
 - account footer
 - quote signature
 
-Facebook video publishing is supported. Instagram Reels publishing is attempted only when a public MP4 URL is available. If Meta returns only a Facebook-relative video link, Instagram video publishing is skipped with an error message.
+Facebook video publishing is supported. Instagram Reels and Threads video publishing are attempted only when a public MP4 URL is available. If Meta returns only a Facebook-relative video link, Instagram and Threads video publishing are skipped with an error message.
 
 ## Database
 
@@ -393,7 +502,19 @@ Check that the Instagram account is a business or creator account connected to t
 
 Scheduled posts do not happen
 
-Make sure the FastAPI server is running at the scheduled time and the machine is not sleeping. On Windows, run `.\start_bot.ps1` from the project root before the first scheduled post, or configure Windows Task Scheduler to run that script at logon.
+If you use the in-app scheduler, make sure the FastAPI server is running at the scheduled time and the machine is not sleeping. On Windows, run `.\start_bot.ps1` from the project root before the first scheduled post.
+
+For a stronger Windows setup, run:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install_windows_schedule.ps1
+```
+
+Then confirm the tasks are ready in Task Scheduler or with:
+
+```powershell
+Get-ScheduledTask | Where-Object { $_.TaskName -like 'AI Social Bot Publish*' }
+```
 
 Repeated quotes
 

@@ -6,11 +6,28 @@ from ai_social_bot.app.prompts.prompts import QUOTE_PROMPT, IMAGE_PROMPTS, QUOTE
 from ai_social_bot.app.core.settings import settings
 from ai_social_bot.app.database.session import AsyncSessionLocal
 from ai_social_bot.app.models.models import Post
+from PIL import Image
 import json
 import time
 import httpx
 import random
 from pathlib import Path
+
+LOCAL_QUOTE_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp'}
+ALLOWED_THEMES = {'love', 'motivation', 'inspiration', 'success', 'mindfulness', 'gratitude'}
+WEAK_CAPTION_PHRASES = {
+    'inner light',
+    'radiance',
+    'journey',
+    'embrace',
+    'shine bright',
+    'true contentment',
+    'external validation',
+    'positive vibes',
+    'inner garden',
+    'the world awaits',
+    'authentic glow',
+}
 
 PALETTES_BY_THEME = {
     'love': [((120, 30, 50), (220, 90, 120)), ((70, 28, 54), (240, 150, 135))],
@@ -247,6 +264,96 @@ LOCAL_QUOTE_PAYLOADS = [
         'theme': 'inspiration',
         'image_prompt': IMAGE_PROMPTS[0],
     },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Trust grows stronger when your steps stay honest.',
+        'explanation': 'A sincere path can steady you even when results take time.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#trust', '#faith', '#honesty', '#dailyquote', '#quotes'],
+        'theme': 'inspiration',
+        'image_prompt': IMAGE_PROMPTS[0],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Quiet effort becomes strength before the world notices.',
+        'explanation': 'Private consistency often builds the confidence people later admire.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#effort', '#strength', '#motivation', '#dailyquote', '#quotes'],
+        'theme': 'motivation',
+        'image_prompt': IMAGE_PROMPTS[2],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Peace returns when you stop carrying every fear.',
+        'explanation': 'Letting go of what you cannot control makes space for calm.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#peace', '#calm', '#mindfulness', '#dailyquote', '#quotes'],
+        'theme': 'mindfulness',
+        'image_prompt': IMAGE_PROMPTS[3],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Gratitude makes today feel rich before tomorrow arrives.',
+        'explanation': 'Thankfulness helps the present moment feel full enough.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#gratitude', '#thankful', '#blessed', '#dailyquote', '#quotes'],
+        'theme': 'gratitude',
+        'image_prompt': IMAGE_PROMPTS[4],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Love speaks clearly when patience chooses to stay.',
+        'explanation': 'Steady patience can show care more deeply than words alone.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#love', '#patience', '#care', '#dailyquote', '#quotes'],
+        'theme': 'love',
+        'image_prompt': IMAGE_PROMPTS[1],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Success follows the habits your excuses could not stop.',
+        'explanation': 'Reliable habits move you forward when excuses lose their power.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#success', '#habits', '#discipline', '#dailyquote', '#quotes'],
+        'theme': 'success',
+        'image_prompt': IMAGE_PROMPTS[2],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Faith steadies the heart before answers become visible.',
+        'explanation': 'Belief can keep you grounded while life is still unfolding.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#faith', '#hope', '#inspiration', '#dailyquote', '#quotes'],
+        'theme': 'inspiration',
+        'image_prompt': IMAGE_PROMPTS[0],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'A calm mind can find doors pressure overlooks.',
+        'explanation': 'Stillness often reveals choices that stress keeps hidden.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#calm', '#mindfulness', '#clarity', '#dailyquote', '#quotes'],
+        'theme': 'mindfulness',
+        'image_prompt': IMAGE_PROMPTS[3],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Small progress is still proof that courage moved.',
+        'explanation': 'Every honest step counts, even when the distance feels long.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#progress', '#courage', '#motivation', '#dailyquote', '#quotes'],
+        'theme': 'motivation',
+        'image_prompt': IMAGE_PROMPTS[2],
+    },
+    {
+        'title': 'Daily Quote',
+        'quote': 'Kind words can heal rooms silence left heavy.',
+        'explanation': 'Gentle speech can bring light where tension has settled.',
+        'cta': 'Share this reminder today.',
+        'hashtags': ['#kindness', '#healing', '#love', '#dailyquote', '#quotes'],
+        'theme': 'love',
+        'image_prompt': IMAGE_PROMPTS[1],
+    },
 ]
 
 
@@ -257,11 +364,28 @@ def _quote_key(text: str) -> str:
         .replace('’', "'")
         .replace('“', '"')
         .replace('”', '"')
-        .replace(QUOTE_SUFFIX.lower(), '')
-        .replace('krishna.....❤️', '')
-        .replace('krishna.....♥', '')
     )
+    normalized = _quote_without_suffix(normalized)
     return ' '.join(word.strip('.,!?;:"\'()[]{}') for word in normalized.split())
+
+
+def _quote_without_suffix(quote: str) -> str:
+    quote = (
+        quote.strip()
+        .replace('â\x9d¤ï¸\x8f', '❤️')
+        .replace('â¤ï¸', '❤️')
+        .replace('â™¥', '♥')
+    )
+    marker = 'krishna.....'
+    index = quote.lower().find(marker)
+    if index != -1:
+        quote = quote[:index].strip()
+    return quote
+
+
+def _with_clean_quote_suffix(quote: str) -> str:
+    quote = _quote_without_suffix(quote)
+    return f'{quote} {QUOTE_SUFFIX}'.strip()
 
 
 def _local_quote_payload(used_quotes: set[str] | None = None) -> dict:
@@ -287,8 +411,50 @@ def _local_quote_payload(used_quotes: set[str] | None = None) -> dict:
 
 
 def _quote_word_count(quote: str) -> int:
-    cleaned = quote.replace(QUOTE_SUFFIX, '').strip()
+    cleaned = _quote_without_suffix(quote)
     return len([word for word in cleaned.split() if word.strip('.,!?;:')])
+
+
+def _normalize_hashtags(payload: dict) -> list[str]:
+    theme = payload.get('theme', 'inspiration')
+    fallback = HASHTAGS_BY_THEME.get(theme, HASHTAGS_BY_THEME['inspiration'])
+    raw_hashtags = payload.get('hashtags') or fallback
+    normalized = []
+    for tag in raw_hashtags:
+        tag = str(tag).strip()
+        if not tag:
+            continue
+        tag = tag.replace(' ', '')
+        if not tag.startswith('#'):
+            tag = f'#{tag}'
+        normalized.append(tag)
+    normalized = list(dict.fromkeys(normalized))
+    if len(normalized) < 15:
+        normalized.extend(tag for tag in fallback if tag not in normalized)
+    return normalized[:15]
+
+
+def _validate_generated_payload(payload: dict) -> None:
+    quote = payload.get('quote', '').strip()
+    explanation = payload.get('explanation', '').strip()
+    theme = payload.get('theme', 'inspiration')
+    hashtags = payload.get('hashtags') or []
+
+    if theme not in ALLOWED_THEMES:
+        raise ValueError(f'LLM returned unsupported theme: {theme}')
+    if not 8 <= _quote_word_count(quote) <= 14:
+        raise ValueError(f'LLM quote word count is outside 8-14 words: {quote}')
+    if quote.lower().count('krishna.....') != 1:
+        raise ValueError(f'LLM quote has malformed signature: {quote}')
+    if len(explanation.split()) > 28:
+        raise ValueError(f'LLM explanation is too long: {explanation}')
+    if len(hashtags) < 15:
+        raise ValueError('LLM returned too few hashtags')
+
+    caption_key = f'{quote} {explanation}'.lower()
+    weak_matches = [phrase for phrase in WEAK_CAPTION_PHRASES if phrase in caption_key]
+    if weak_matches:
+        raise ValueError(f'LLM caption used weak/generic phrase(s): {", ".join(weak_matches)}')
 
 
 def _parse_quote_payload(content: str) -> dict:
@@ -305,27 +471,124 @@ def _parse_quote_payload(content: str) -> dict:
             'image_prompt': IMAGE_PROMPTS[0],
         }
 
-    quote = payload.get('quote', '').strip()
-    if not quote.endswith(QUOTE_SUFFIX):
-        quote = f'{quote} {QUOTE_SUFFIX}'.strip()
+    quote = _with_clean_quote_suffix(payload.get('quote', ''))
     payload['quote'] = quote
-    if not 8 <= _quote_word_count(quote) <= 14:
-        fallback = _local_quote_payload()
-        fallback['hashtags'] = payload.get('hashtags') or fallback['hashtags']
-        fallback['theme'] = payload.get('theme') or fallback['theme']
-        return _parse_quote_payload(json.dumps(fallback))
+    payload['theme'] = str(payload.get('theme') or 'inspiration').strip().lower()
+    payload['hashtags'] = _normalize_hashtags(payload)
+    _validate_generated_payload(payload)
     return payload
 
 async def _generate_quote_payload(used_quotes: set[str] | None = None) -> dict:
+    last_validation_error = None
+    for _ in range(4):
+        try:
+            result = await generate_text(QUOTE_PROMPT)
+            content = result['choices'][0]['message']['content']
+            return _parse_quote_payload(content)
+        except ValueError as exc:
+            last_validation_error = exc
+            print(f"LLM quote quality check failed; retrying: {exc}")
+        except httpx.HTTPStatusError as exc:
+            if not settings.ALLOW_LOCAL_QUOTE_FALLBACK:
+                raise
+            print(f"LLM quote generation failed; using local fallback quote: {exc.response.status_code}")
+            return _parse_quote_payload(json.dumps(_local_quote_payload(used_quotes)))
+    if not settings.ALLOW_LOCAL_QUOTE_FALLBACK:
+        raise last_validation_error or RuntimeError('LLM quote quality checks failed')
+    print(f"LLM quote quality checks failed; using local fallback quote: {last_validation_error}")
+    return _parse_quote_payload(json.dumps(_local_quote_payload(used_quotes)))
+
+
+async def _try_generate_ai_quote_payload() -> dict | None:
     try:
         result = await generate_text(QUOTE_PROMPT)
-        content = result['choices'][0]['message']['content']
-        return _parse_quote_payload(content)
-    except httpx.HTTPStatusError as exc:
+    except Exception as exc:
         if not settings.ALLOW_LOCAL_QUOTE_FALLBACK:
             raise
-        print(f"OpenAI quote generation failed; using local fallback quote: {exc.response.status_code}")
-        return _parse_quote_payload(json.dumps(_local_quote_payload(used_quotes)))
+        print(f"AI quote generation failed; checking local quote image fallback: {exc}")
+        return None
+    content = result['choices'][0]['message']['content']
+    return _parse_quote_payload(content)
+
+
+async def _try_generate_unique_ai_quote_payload(max_attempts: int = 12) -> dict | None:
+    payload = None
+    for _ in range(max_attempts):
+        try:
+            payload = await _try_generate_ai_quote_payload()
+        except ValueError as exc:
+            print(f"LLM quote quality check failed; retrying: {exc}")
+            continue
+        if payload is None:
+            return None
+        if not await _posted_quote_exists(payload['quote']):
+            return payload
+    return payload
+
+
+def _local_quote_images() -> list[Path]:
+    image_dir = Path(settings.LOCAL_QUOTE_IMAGE_DIR)
+    if not image_dir.exists():
+        return []
+    return sorted(
+        path
+        for path in image_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in LOCAL_QUOTE_IMAGE_EXTENSIONS
+    )
+
+
+def _pick_local_quote_image() -> Path | None:
+    images = _local_quote_images()
+    if not images:
+        return None
+    return images[0]
+
+
+def _delete_local_quote_image(image_path: str) -> None:
+    if not settings.DELETE_LOCAL_QUOTE_IMAGE_AFTER_POST:
+        return
+
+    path = Path(image_path)
+    fallback_dir = Path(settings.LOCAL_QUOTE_IMAGE_DIR).resolve()
+    resolved_path = path.resolve()
+    try:
+        resolved_path.relative_to(fallback_dir)
+    except ValueError:
+        print(f"Skipping delete for image outside local quote folder: {path}")
+        return
+
+    if resolved_path.exists():
+        resolved_path.unlink()
+        print(f"Deleted published local quote image: {resolved_path}")
+
+
+def _prepare_local_quote_image_for_publish(image_path: str) -> str:
+    path = Path(image_path)
+    if path.suffix.lower() in {'.jpg', '.jpeg'}:
+        return image_path
+
+    output_dir = Path('ai_social_bot/assets')
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f'local_quote_publish_{time.time_ns()}.jpg'
+    with Image.open(path) as image:
+        image.convert('RGB').save(output_path, 'JPEG', quality=95)
+    return str(output_path)
+
+
+def _delete_generated_publish_image(image_path: str, original_path: str) -> None:
+    if image_path == original_path:
+        return
+
+    path = Path(image_path)
+    assets_dir = Path('ai_social_bot/assets').resolve()
+    resolved_path = path.resolve()
+    try:
+        resolved_path.relative_to(assets_dir)
+    except ValueError:
+        return
+
+    if resolved_path.exists():
+        resolved_path.unlink()
 
 
 def _caption_text(payload: dict) -> str:
@@ -429,27 +692,51 @@ async def generate_and_schedule_post():
 
 
 async def generate_post_now():
-    payload = await _generate_unique_quote_payload()
     meta_context, account_links = await _meta_context_and_links()
+    payload = await _try_generate_unique_ai_quote_payload()
+    local_quote_image = None
+    publish_image_path = None
 
-    image_path = _create_image(payload, 'quote_now', account_links)
-    theme = payload.get('theme', 'inspiration')
-    hashtags = payload.get('hashtags') or HASHTAGS_BY_THEME.get(theme, HASHTAGS_BY_THEME['inspiration'])
-    caption = _caption_text(payload)
+    if payload is None:
+        local_quote_image = _pick_local_quote_image()
+        if local_quote_image is None:
+            used_quotes = await _posted_quote_texts()
+            payload = _parse_quote_payload(json.dumps(_local_quote_payload(used_quotes)))
+            image_path = _create_image(payload, 'quote_now', account_links)
+            theme = payload.get('theme', 'inspiration')
+            hashtags = payload.get('hashtags') or HASHTAGS_BY_THEME.get(theme, HASHTAGS_BY_THEME['inspiration'])
+            caption = _caption_text(payload)
+        else:
+            image_path = str(local_quote_image)
+            publish_image_path = _prepare_local_quote_image_for_publish(image_path)
+            hashtags = ['#dailyquote', '#inspiration', '#quotes']
+            caption = settings.LOCAL_QUOTE_IMAGE_CAPTION.strip()
+    else:
+        image_path = _create_image(payload, 'quote_now', account_links)
+        theme = payload.get('theme', 'inspiration')
+        hashtags = payload.get('hashtags') or HASHTAGS_BY_THEME.get(theme, HASHTAGS_BY_THEME['inspiration'])
+        caption = _caption_text(payload)
 
+    publish_image_path = publish_image_path or image_path
     try:
-        publish_res = await publish_to_meta(image_path, caption, context=meta_context)
+        publish_res = await publish_to_meta(publish_image_path, caption, context=meta_context)
     except Exception as e:
         print(f"Meta publish error: {e}")
         publish_res = {'error': str(e)}
+    finally:
+        _delete_generated_publish_image(publish_image_path, image_path)
+
+    posted = 'error' not in publish_res
+    if posted and local_quote_image is not None:
+        _delete_local_quote_image(image_path)
 
     async with AsyncSessionLocal() as s:
         post = Post(
-            title=payload.get('title', ''),
+            title=payload.get('title', 'Local Quote Image') if payload else 'Local Quote Image',
             caption=caption,
             hashtags=','.join(hashtags),
             image_path=image_path,
-            posted='error' not in publish_res,
+            posted=posted,
         )
         s.add(post)
         await s.commit()

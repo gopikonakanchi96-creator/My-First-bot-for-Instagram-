@@ -1,3 +1,4 @@
+import json
 import random
 import math
 from pathlib import Path
@@ -234,11 +235,13 @@ def _draw_account_links(
 
     instagram_username = account_links.get('instagram_username')
     facebook_name = account_links.get('facebook_name')
+    threads_username = account_links.get('threads_username')
     footer_lines = [
         line
         for line in [
             f'@{instagram_username}' if instagram_username else None,
             f'Facebook: {facebook_name}' if facebook_name else None,
+            f'Threads: @{threads_username}' if threads_username else None,
         ]
         if line
     ]
@@ -275,19 +278,78 @@ def _quote_backgrounds() -> list[Path]:
 
 
 def _choose_background(backgrounds: list[Path]) -> Path:
-    state_path = Path('ai_social_bot/assets/.last_background')
-    last_name = state_path.read_text(encoding='utf-8').strip() if state_path.exists() else ''
-    choices = [path for path in backgrounds if path.name != last_name]
+    state_path = Path('ai_social_bot/assets/.recent_backgrounds')
+    recent = []
+    if state_path.exists():
+        try:
+            recent = json.loads(state_path.read_text(encoding='utf-8'))
+        except Exception:
+            recent = []
+    if not isinstance(recent, list):
+        recent = []
+
+    memory = max(1, min(settings.RECENT_BACKGROUND_MEMORY, max(1, len(backgrounds) - 1)))
+    recent_names = set(recent[-memory:])
+    choices = [path for path in backgrounds if path.name not in recent_names]
     selected = random.choice(choices or backgrounds)
-    state_path.write_text(selected.name, encoding='utf-8')
+    updated = [name for name in recent if name != selected.name]
+    updated.append(selected.name)
+    state_path.write_text(json.dumps(updated[-memory:], indent=2), encoding='utf-8')
     return selected
 
 
-def _draw_overlay(draw: ImageDraw.ImageDraw, width: int, height: int) -> None:
+def _accent_color(theme: str | None) -> tuple[int, int, int]:
+    accents = {
+        'love': [(244, 132, 156), (235, 190, 168), (255, 116, 139)],
+        'motivation': [(255, 202, 86), (88, 197, 255), (255, 127, 80)],
+        'inspiration': [(126, 211, 194), (246, 196, 96), (144, 180, 255)],
+        'success': [(198, 229, 126), (80, 210, 170), (240, 208, 96)],
+        'mindfulness': [(164, 210, 196), (184, 196, 232), (232, 211, 178)],
+        'gratitude': [(238, 180, 112), (220, 198, 120), (242, 151, 117)],
+    }
+    return random.choice(accents.get((theme or '').lower(), accents['inspiration']))
+
+
+def _draw_overlay(draw: ImageDraw.ImageDraw, width: int, height: int, theme: str | None) -> tuple[int, int, int]:
+    accent = _accent_color(theme)
     for y in range(height):
         distance = abs(y - height / 2) / (height / 2)
-        alpha = int(95 + 95 * max(0, 1 - distance))
+        alpha = int(88 + 92 * max(0, 1 - distance))
         draw.line([(0, y), (width, y)], fill=(0, 0, 0, alpha))
+    for y in range(0, height, 14):
+        alpha = max(0, 9 - int(y / height * 5))
+        draw.line([(0, y), (width, y)], fill=(*accent, alpha))
+    return accent
+
+
+def _draw_visual_accents(
+    draw: ImageDraw.ImageDraw,
+    width: int,
+    height: int,
+    accent: tuple[int, int, int],
+    variant: str,
+) -> None:
+    if variant == 'side-rule':
+        x = random.choice([82, width - 92])
+        draw.rounded_rectangle((x, 190, x + 10, height - 260), radius=5, fill=(*accent, 180))
+    elif variant == 'corner-frame':
+        stroke = (*accent, 150)
+        draw.line((84, 120, 300, 120), fill=stroke, width=5)
+        draw.line((84, 120, 84, 336), fill=stroke, width=5)
+        draw.line((width - 300, height - 142, width - 84, height - 142), fill=stroke, width=5)
+        draw.line((width - 84, height - 358, width - 84, height - 142), fill=stroke, width=5)
+    elif variant == 'soft-band':
+        y = random.choice([218, height - 342])
+        draw.rounded_rectangle((110, y, width - 110, y + 5), radius=3, fill=(*accent, 160))
+    else:
+        radius = random.choice([420, 520, 620])
+        x = random.choice([-220, width - radius + 220])
+        y = random.choice([120, height - radius - 160])
+        draw.ellipse((x, y, x + radius, y + radius), outline=(*accent, 95), width=6)
+
+
+def _text_layout_variant() -> str:
+    return random.choice(['center', 'upper', 'lower'])
 
 
 def create_quote_image(
@@ -308,6 +370,7 @@ def create_quote_image(
 
     backgrounds = _quote_backgrounds()
     has_nature_background = bool(backgrounds)
+    accent = _accent_color(theme)
     if background_path:
         img = Image.open(background_path).convert('RGB')
         has_nature_background = True
@@ -319,7 +382,7 @@ def create_quote_image(
     if img:
         img = ImageOps.fit(img, (width, height), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
         overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        _draw_overlay(ImageDraw.Draw(overlay), width, height)
+        accent = _draw_overlay(ImageDraw.Draw(overlay), width, height, theme)
         img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
     else:
         if not palette:
@@ -342,7 +405,18 @@ def create_quote_image(
             g = int(g1 * (1 - t) + g2 * t)
             b = int(b1 * (1 - t) + b2 * t)
             draw.line([(0, i), (width, i)], fill=(r, g, b))
+        accent = palette[1]
 
+    draw = ImageDraw.Draw(img)
+    accent_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    _draw_visual_accents(
+        ImageDraw.Draw(accent_layer),
+        width,
+        height,
+        accent,
+        random.choice(['side-rule', 'corner-frame', 'soft-band', 'halo']),
+    )
+    img = Image.alpha_composite(img.convert('RGBA'), accent_layer).convert('RGB')
     draw = ImageDraw.Draw(img)
 
     font_path = _choose_font_path(theme, has_nature_background)
@@ -367,7 +441,13 @@ def create_quote_image(
 
     signature_gap = 42 if signature else 0
     group_height = quote_height + signature_gap + signature_height
-    y = int((height - group_height) / 2)
+    layout = _text_layout_variant()
+    if layout == 'upper':
+        y = max(250, int((height - group_height) * 0.36))
+    elif layout == 'lower':
+        y = min(height - group_height - 260, int((height - group_height) * 0.58))
+    else:
+        y = int((height - group_height) / 2)
 
     for index, line in enumerate(lines):
         line_height = _draw_centered_line(draw, line, y, font, width, (255, 255, 255))

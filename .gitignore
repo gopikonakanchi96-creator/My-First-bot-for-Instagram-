@@ -20,6 +20,8 @@ ai_social_bot/assets/*
 !ai_social_bot/assets/.gitkeep
 !ai_social_bot/assets/nature_background_*.png
 !ai_social_bot/assets/quote_background_*.png
+ai_social_bot/local_quote_images/*
+!ai_social_bot/local_quote_images/.gitkeep
 
 .idea/
 .refact/

@@ -29,6 +29,8 @@ $Arguments = @(
     "$Port"
 )
 
+$env:ENABLE_IN_APP_SCHEDULER = 'true'
+
 Start-Process `
     -FilePath 'python' `
     -ArgumentList $Arguments `

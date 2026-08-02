@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from ai_social_bot.app.services.post_service import generate_and_schedule_post, generate_post_now
+from ai_social_bot.app.services.post_service import generate_and_schedule_post, generate_post_now, generate_video_now
 from ai_social_bot.app.models.models import Post
 from ai_social_bot.app.database.session import engine
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,8 +22,15 @@ async def generate():
 async def publish_now():
     publish_result = await generate_post_now()
     if 'error' in publish_result:
-        return {'status': 'failed', 'facebook': publish_result}
-    return {'status': 'published', 'facebook': publish_result}
+        return {'status': 'failed', 'meta': publish_result}
+    return {'status': 'published', 'meta': publish_result}
+
+@router.post('/publish-video-now')
+async def publish_video_now():
+    publish_result = await generate_video_now()
+    if 'error' in publish_result:
+        return {'status': 'failed', 'meta': publish_result}
+    return {'status': 'published', 'meta': publish_result}
 
 @router.get('/logs')
 async def get_logs():
