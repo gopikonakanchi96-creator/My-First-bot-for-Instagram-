@@ -361,6 +361,7 @@ def create_quote_image(
     theme: str | None = None,
     background_path: str | None = None,
     account_links: dict | None = None,
+    use_stored_backgrounds: bool = True,
 ) -> str:
     """Create a readable 1080x1350 quote image with varied font, centered quote, and smaller signature."""
     main_quote, signature = _split_quote_signature(quote)
@@ -368,7 +369,7 @@ def create_quote_image(
     out_dir = Path('ai_social_bot/assets')
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    backgrounds = _quote_backgrounds()
+    backgrounds = _quote_backgrounds() if use_stored_backgrounds else []
     has_nature_background = bool(backgrounds)
     accent = _accent_color(theme)
     if background_path:

@@ -125,10 +125,18 @@ async def generate_text(prompt: str, max_tokens: int = 300) -> Dict[str, Any]:
         last_error.raise_for_status()
     raise RuntimeError('No OpenAI models were configured')
 
-async def generate_image(prompt: str, size: str = '1080x1350') -> Dict[str, Any]:
+async def generate_image(prompt: str, size: str = '1024x1536') -> Dict[str, Any]:
     headers = {'Authorization': f'Bearer {settings.OPENAI_API_KEY}', 'Content-Type': 'application/json'}
-    payload = {'prompt': prompt, 'size': size}
-    async with httpx.AsyncClient(timeout=60) as client:
+    payload = {
+        'model': settings.OPENAI_IMAGE_MODEL,
+        'prompt': prompt,
+        'size': size,
+        'quality': 'medium',
+        'n': 1,
+    }
+    async with httpx.AsyncClient(timeout=120) as client:
         r = await client.post(f'{OPENAI_URL}/images/generations', json=payload, headers=headers)
+        if r.status_code >= 400:
+            print(f"OpenAI image generation failed: {r.status_code} {r.text}")
         r.raise_for_status()
         return r.json()

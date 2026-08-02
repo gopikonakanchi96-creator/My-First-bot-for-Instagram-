@@ -1,4 +1,4 @@
-from ai_social_bot.app.services.openai_service import generate_text
+from ai_social_bot.app.services.openai_service import generate_image, generate_text
 from ai_social_bot.app.services.image_service import create_quote_image
 from ai_social_bot.app.services.meta_service import get_page_context, get_public_account_links, publish_to_meta, publish_video_to_meta
 from ai_social_bot.app.services.video_service import create_quote_video
@@ -6,7 +6,8 @@ from ai_social_bot.app.prompts.prompts import QUOTE_PROMPT, IMAGE_PROMPTS, QUOTE
 from ai_social_bot.app.core.settings import settings
 from ai_social_bot.app.database.session import AsyncSessionLocal
 from ai_social_bot.app.models.models import Post
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
+import base64
 import json
 import time
 import httpx
@@ -658,7 +659,12 @@ async def _meta_context_and_links() -> tuple[dict | None, dict]:
         return None, get_public_account_links()
 
 
-def _create_image(payload: dict, filename_prefix: str, account_links: dict | None = None) -> str:
+def _create_image(
+    payload: dict,
+    filename_prefix: str,
+    account_links: dict | None = None,
+    use_stored_backgrounds: bool = True,
+) -> str:
     theme = payload.get('theme', 'inspiration')
     palettes = PALETTES_BY_THEME.get(theme, PALETTES_BY_THEME['inspiration'])
     palette = random.choice(palettes)
@@ -671,14 +677,97 @@ def _create_image(payload: dict, filename_prefix: str, account_links: dict | Non
         palette=palette,
         theme=theme,
         account_links=account_links,
+        use_stored_backgrounds=use_stored_backgrounds,
     )
+
+
+def _ai_quote_image_prompt(payload: dict, account_links: dict | None = None) -> str:
+    quote = payload.get('quote', '').strip()
+    theme = payload.get('theme', 'inspiration')
+    style = payload.get('style', '').strip()
+    visual_prompt = payload.get('image_prompt', '').strip()
+    footer_lines = []
+    if account_links:
+        instagram_username = account_links.get('instagram_username')
+        facebook_name = account_links.get('facebook_name')
+        threads_username = account_links.get('threads_username')
+        if instagram_username:
+            footer_lines.append(f'@{instagram_username}')
+        if facebook_name:
+            footer_lines.append(f'Facebook: {facebook_name}')
+        if threads_username:
+            footer_lines.append(f'Threads: @{threads_username}')
+
+    footer_instruction = ''
+    if footer_lines:
+        footer_instruction = f"Add a small footer with exactly this account text: {' | '.join(footer_lines)}."
+
+    return f"""
+Create a complete premium social-media quote poster as a finished raster image.
+Do not use, copy, or imitate any stored/local background image.
+Canvas should be portrait 4:5 safe, with generous margins so it can be fitted to 1080x1350.
+Theme: {theme}. Style: {style or 'cinematic editorial'}.
+Visual concept: {visual_prompt or random.choice(IMAGE_PROMPTS)}.
+Render the quote text exactly as written, centered and highly readable:
+{quote}
+Use elegant typography, strong contrast, no extra quotes, no extra slogans, no watermarks, and no raw URLs.
+{footer_instruction}
+""".strip()
+
+
+async def _create_ai_quote_image(payload: dict, filename_prefix: str, account_links: dict | None = None) -> str:
+    out_dir = Path('ai_social_bot/assets')
+    out_dir.mkdir(parents=True, exist_ok=True)
+    output_path = out_dir / f"{filename_prefix}_{time.time_ns()}.jpg"
+    result = await generate_image(_ai_quote_image_prompt(payload, account_links))
+    image_data = result.get('data') or []
+    if not image_data:
+        raise RuntimeError(f'AI image generation returned no image data: {result}')
+
+    first_image = image_data[0]
+    b64_json = first_image.get('b64_json')
+    if b64_json:
+        raw_image = base64.b64decode(b64_json)
+    elif first_image.get('url'):
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.get(first_image['url'])
+            response.raise_for_status()
+            raw_image = response.content
+    else:
+        raise RuntimeError(f'AI image generation returned no supported image payload: {result}')
+
+    temp_path = output_path.with_suffix('.generated.png')
+    temp_path.write_bytes(raw_image)
+    try:
+        with Image.open(temp_path) as image:
+            image = image.convert('RGB')
+            background = Image.new('RGB', (1080, 1350), (18, 18, 18))
+            fill = ImageOps.fit(image, (1080, 1350), method=Image.Resampling.LANCZOS).filter(ImageFilter.GaussianBlur(18))
+            background.paste(fill)
+            image.thumbnail((1000, 1270), Image.Resampling.LANCZOS)
+            x = int((1080 - image.width) / 2)
+            y = int((1350 - image.height) / 2)
+            background.paste(image, (x, y))
+            background.save(output_path, 'JPEG', quality=95)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+    return str(output_path)
 
 
 async def generate_and_schedule_post():
     payload = await _generate_unique_quote_payload()
 
     _, account_links = await _meta_context_and_links()
-    image_path = _create_image(payload, 'quote', account_links)
+    if settings.USE_AI_GENERATED_QUOTE_IMAGES:
+        try:
+            image_path = await _create_ai_quote_image(payload, 'quote', account_links)
+        except Exception as exc:
+            print(f"AI quote image generation failed; using generated non-stored fallback: {exc}")
+            image_path = _create_image(payload, 'quote', account_links, use_stored_backgrounds=False)
+    else:
+        image_path = _create_image(payload, 'quote', account_links)
 
     async with AsyncSessionLocal() as s:
         post = Post(
@@ -712,7 +801,14 @@ async def generate_post_now():
             hashtags = ['#dailyquote', '#inspiration', '#quotes']
             caption = settings.LOCAL_QUOTE_IMAGE_CAPTION.strip()
     else:
-        image_path = _create_image(payload, 'quote_now', account_links)
+        if settings.USE_AI_GENERATED_QUOTE_IMAGES:
+            try:
+                image_path = await _create_ai_quote_image(payload, 'quote_now', account_links)
+            except Exception as exc:
+                print(f"AI quote image generation failed; using generated non-stored fallback: {exc}")
+                image_path = _create_image(payload, 'quote_now', account_links, use_stored_backgrounds=False)
+        else:
+            image_path = _create_image(payload, 'quote_now', account_links)
         theme = payload.get('theme', 'inspiration')
         hashtags = payload.get('hashtags') or HASHTAGS_BY_THEME.get(theme, HASHTAGS_BY_THEME['inspiration'])
         caption = _caption_text(payload)

@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     GEMINI_MODEL_FALLBACKS: str = 'gemini-2.0-flash-lite,gemini-2.0-flash'
     OPENAI_MODEL: str = 'gpt-4o'
     OPENAI_MODEL_FALLBACKS: str = 'gpt-4o-mini,gpt-4.1-mini'
+    OPENAI_IMAGE_MODEL: str = 'gpt-image-1'
+    USE_AI_GENERATED_QUOTE_IMAGES: bool = True
     ALLOW_LOCAL_QUOTE_FALLBACK: bool = True
     LOCAL_QUOTE_IMAGE_DIR: str = 'ai_social_bot/local_quote_images'
     LOCAL_QUOTE_IMAGE_CAPTION: str = 'Daily inspiration. Krishna.....'
